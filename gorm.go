@@ -52,6 +52,9 @@ type Config struct {
 	TranslateError bool
 	// SkipOutputStatement disable OUTPUT clause when inserting a row
 	SkipOutputStatement bool
+	// PropagateUnscoped propagate Unscoped to every other nested statement
+	PropagateUnscoped bool
+
 	// ClauseBuilders clause builder
 	ClauseBuilders map[string]clause.ClauseBuilder
 	// ConnPool db conn pool
@@ -111,6 +114,7 @@ type Session struct {
 	DisableNestedTransaction bool
 	AllowGlobalUpdate        bool
 	FullSaveAssociations     bool
+	PropagateUnscoped        bool
 	QueryFields              bool
 	SkipOutputStatement      bool
 	Context                  context.Context
@@ -246,6 +250,10 @@ func (db *DB) Session(config *Session) *DB {
 
 	if config.FullSaveAssociations {
 		txConfig.FullSaveAssociations = true
+	}
+
+	if config.PropagateUnscoped {
+		txConfig.PropagateUnscoped = true
 	}
 
 	if config.Context != nil || config.PrepareStmt || config.SkipHooks {
@@ -423,6 +431,9 @@ func (db *DB) getInstance() *DB {
 				Clauses:   map[string]clause.Clause{},
 				Vars:      make([]interface{}, 0, 8),
 				SkipHooks: db.Statement.SkipHooks,
+			}
+			if db.Config.PropagateUnscoped {
+				tx.Statement.Unscoped = db.Statement.Unscoped
 			}
 		} else {
 			// with clone statement
