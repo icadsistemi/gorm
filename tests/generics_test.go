@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -120,6 +121,11 @@ func TestGenericsExecAndUpdate(t *testing.T) {
 		t.Fatalf("Exec insert failed: %v", err)
 	}
 
+	name2 := "GenericsExec2"
+	if err := gorm.G[User](DB).Exec(ctx, "INSERT INTO ?(name) VALUES(?)", clause.Table{Name: clause.CurrentTable}, name2); err != nil {
+		t.Fatalf("Exec insert failed: %v", err)
+	}
+
 	u, err := gorm.G[User](DB).Table("users as u").Where("u.name = ?", name).First(ctx)
 	if err != nil {
 		t.Fatalf("failed to find user, got error: %v", err)
@@ -161,7 +167,7 @@ func TestGenericsRow(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	row := gorm.G[User](DB).Raw("SELECT name FROM users WHERE id = ?", user.ID).Row(ctx)
+	row := gorm.G[User](DB).Raw("SELECT name FROM ? WHERE id = ?", clause.Table{Name: clause.CurrentTable}, user.ID).Row(ctx)
 	var name string
 	if err := row.Scan(&name); err != nil {
 		t.Fatalf("Row scan failed: %v", err)
@@ -848,5 +854,27 @@ func TestGenericsToSQL(t *testing.T) {
 
 	if !regexp.MustCompile("SELECT \\* FROM .users..* 10").MatchString(sql) {
 		t.Errorf("ToSQL: got wrong sql with Generics API %v", sql)
+	}
+}
+
+func TestGenericsScanUUID(t *testing.T) {
+	ctx := context.Background()
+	users := []User{
+		{Name: uuid.NewString(), Age: 21},
+		{Name: uuid.NewString(), Age: 22},
+		{Name: uuid.NewString(), Age: 23},
+	}
+
+	if err := gorm.G[User](DB).CreateInBatches(ctx, &users, 2); err != nil {
+		t.Fatalf("CreateInBatches failed: %v", err)
+	}
+
+	userIds := []uuid.UUID{}
+	if err := gorm.G[User](DB).Select("name").Where("id in ?", []uint{users[0].ID, users[1].ID, users[2].ID}).Order("age").Scan(ctx, &userIds); err != nil || len(users) != 3 {
+		t.Fatalf("Scan failed: %v, userids %v", err, userIds)
+	}
+
+	if userIds[0].String() != users[0].Name || userIds[1].String() != users[1].Name || userIds[2].String() != users[2].Name {
+		t.Fatalf("wrong uuid scanned")
 	}
 }
