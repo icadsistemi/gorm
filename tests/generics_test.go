@@ -69,6 +69,36 @@ func TestGenericsCreate(t *testing.T) {
 	if v := mapResult["user_name"]; fmt.Sprint(v) != user.Name {
 		t.Errorf("failed to find map results, got %v, err %v", mapResult, err)
 	}
+
+	selectOnly := User{Name: "GenericsCreateSelectOnly", Age: 99}
+	if err := gorm.G[User](DB).Select("name").Create(ctx, &selectOnly); err != nil {
+		t.Fatalf("failed to create with Select, got error: %v", err)
+	}
+
+	if selectOnly.ID == 0 {
+		t.Fatalf("no primary key found for select-only user: %v", selectOnly)
+	}
+
+	if stored, err := gorm.G[User](DB).Where("id = ?", selectOnly.ID).First(ctx); err != nil {
+		t.Fatalf("failed to reload select-only user, got error: %v", err)
+	} else if stored.Name != selectOnly.Name || stored.Age != 0 {
+		t.Errorf("unexpected select-only user state, got %#v", stored)
+	}
+
+	omitAge := User{Name: "GenericsCreateOmitAge", Age: 88}
+	if err := gorm.G[User](DB).Omit("age").Create(ctx, &omitAge); err != nil {
+		t.Fatalf("failed to create with Omit, got error: %v", err)
+	}
+
+	if omitAge.ID == 0 {
+		t.Fatalf("no primary key found for omit-age user: %v", omitAge)
+	}
+
+	if stored, err := gorm.G[User](DB).Where("id = ?", omitAge.ID).First(ctx); err != nil {
+		t.Fatalf("failed to reload omit-age user, got error: %v", err)
+	} else if stored.Name != omitAge.Name || stored.Age != 0 {
+		t.Errorf("unexpected omit-age user state, got %#v", stored)
+	}
 }
 
 func TestGenericsCreateInBatches(t *testing.T) {
@@ -167,29 +197,70 @@ func TestGenericsRow(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	row := gorm.G[User](DB).Raw("SELECT name FROM ? WHERE id = ?", clause.Table{Name: clause.CurrentTable}, user.ID).Row(ctx)
+	rawSQLUserRow := gorm.G[User](DB).Raw("SELECT name FROM ? WHERE id = ?", clause.Table{Name: clause.CurrentTable}, user.ID).Row(ctx)
 	var name string
-	if err := row.Scan(&name); err != nil {
-		t.Fatalf("Row scan failed: %v", err)
+	if err := rawSQLUserRow.Scan(&name); err != nil {
+		t.Fatalf("rawSQLUserRow scan failed: %v", err)
 	}
 	if name != user.Name {
 		t.Errorf("expected %s, got %s", user.Name, name)
+	}
+
+	var scannedUserName string
+	selectUserRow := gorm.G[User](DB).Select("name").Where("name = ?", user.Name).Row(ctx)
+	if err := selectUserRow.Scan(&scannedUserName); err != nil {
+		t.Fatalf("selectUserRow scan failed: %v", err)
+	}
+	if name != user.Name {
+		t.Errorf("expected %s, got %s", user.Name, scannedUserName)
 	}
 
 	user2 := User{Name: "GenericsRow2"}
 	if err := gorm.G[User](DB).Create(ctx, &user2); err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
-	rows, err := gorm.G[User](DB).Raw("SELECT name FROM users WHERE id IN ?", []uint{user.ID, user2.ID}).Rows(ctx)
+	rawSQLUserRows, err := gorm.G[User](DB).Raw("SELECT name FROM users WHERE id IN ?", []uint{user.ID, user2.ID}).Rows(ctx)
 	if err != nil {
-		t.Fatalf("Rows failed: %v", err)
+		t.Fatalf("rawSQLUserRows failed: %v", err)
 	}
 
 	count := 0
-	for rows.Next() {
+	for rawSQLUserRows.Next() {
 		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("rows.Scan failed: %v", err)
+		if err := rawSQLUserRows.Scan(&name); err != nil {
+			t.Fatalf("rawSQLUserRows.Scan failed: %v", err)
+		}
+		count++
+	}
+	if count != 2 {
+		t.Errorf("expected 2 rows, got %d", count)
+	}
+
+	selectNameUserRows, err := gorm.G[User](DB).Select("name").Where("id IN ?", []uint{user.ID, user2.ID}).Rows(ctx)
+	if err != nil {
+		t.Fatalf("selectNameUserRows failed: %v", err)
+	}
+	count = 0
+	for selectNameUserRows.Next() {
+		var name string
+		if err := selectNameUserRows.Scan(&name); err != nil {
+			t.Fatalf("selectNameUserRows.Scan failed: %v", err)
+		}
+		count++
+	}
+	if count != 2 {
+		t.Errorf("expected 2 rows, got %d", count)
+	}
+
+	fullUserRows, err := gorm.G[User](DB).Where("id IN ?", []uint{user.ID, user2.ID}).Rows(ctx)
+	if err != nil {
+		t.Fatalf("Rows failed: %v", err)
+	}
+	count = 0
+	for fullUserRows.Next() {
+		var scannedUser User
+		if err := DB.ScanRows(fullUserRows, &scannedUser); err != nil {
+			t.Fatalf("DB.ScanRows failed: %v", err)
 		}
 		count++
 	}
