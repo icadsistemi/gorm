@@ -1,3 +1,5 @@
+// Package gorm is a full-featured, developer-friendly ORM for Golang.
+// See https://gorm.io for documentation and community.
 package gorm
 
 import (
@@ -239,6 +241,11 @@ func Open(dialector Dialector, opts ...Option) (db *DB, err error) {
 	if err == nil && !config.DisableAutomaticPing {
 		if pinger, ok := db.ConnPool.(interface{ Ping() error }); ok {
 			err = pinger.Ping()
+			if err != nil {
+				if db, _ := db.DB(); db != nil {
+					_ = db.Close()
+				}
+			}
 		}
 	}
 
@@ -419,6 +426,9 @@ func (db *DB) AddError(err error) error {
 			db.Error = err
 		} else {
 			db.Error = fmt.Errorf("%v; %w", db.Error, err)
+		}
+		if db.Statement != nil && db.Statement.Result != nil {
+			db.Statement.Result.Error = db.Error
 		}
 	}
 	return db.Error
