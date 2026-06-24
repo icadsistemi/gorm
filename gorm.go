@@ -62,8 +62,6 @@ type Config struct {
 	CreateBatchSize int
 	// TranslateError enabling error translation
 	TranslateError bool
-	// SkipOutputStatement disable OUTPUT clause when inserting a row
-	SkipOutputStatement bool
 	// PropagateUnscoped propagate Unscoped to every other nested statement
 	PropagateUnscoped bool
 
@@ -128,7 +126,6 @@ type Session struct {
 	FullSaveAssociations     bool
 	PropagateUnscoped        bool
 	QueryFields              bool
-	SkipOutputStatement      bool
 	Context                  context.Context
 	Logger                   logger.Interface
 	// NowFunc overrides the function used when creating a new timestamp
@@ -272,10 +269,6 @@ func (db *DB) Session(config *Session) *DB {
 		}
 	)
 
-	if config.SkipOutputStatement {
-		tx.Config.SkipOutputStatement = true
-	}
-
 	if config.CreateBatchSize > 0 {
 		tx.Config.CreateBatchSize = config.CreateBatchSize
 	}
@@ -381,11 +374,9 @@ func (db *DB) Debug() (tx *DB) {
 }
 
 // Skip the output statement
-func (db *DB) SkipOutput() (tx *DB) {
-	tx = db.getInstance()
-	return tx.Session(&Session{
-		SkipOutputStatement: true,
-	})
+func (db *DB) SkipOutputStatement() (tx *DB) {
+	ctx := context.WithValue(db.Statement.Context, "skip-output-statement", true)
+	return db.WithContext(ctx)
 }
 
 // Set store value with key into current db instance's context
